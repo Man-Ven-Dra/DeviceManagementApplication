@@ -1,0 +1,6 @@
+@BillingMicroservice_HostAddress = http://localhost:5228
+
+GET {{BillingMicroservice_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
