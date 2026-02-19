@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using Confluent.Kafka;
 using DeviceManagementAPI.Data;
 using DeviceManagementAPI.Models;
 using DeviceManagementAPI.Repositories;
@@ -21,6 +22,16 @@ builder.Services.AddSingleton<ConcurrentDictionary<Guid, Device>>();
 builder.Services.AddSingleton<IConnectionMultiplexer>(
     ConnectionMultiplexer.Connect("localhost:6379")
 );
+
+builder.Services.AddSingleton<IProducer<string, string>>(sp =>
+{
+    var config = new ProducerConfig
+    {
+        BootstrapServers = builder.Configuration["Kafka:BootstrapServers"],
+        // Add more: Acks = Acks.All for durability (wait for replicas)
+    };
+    return new ProducerBuilder<string, string>(config).Build();
+});
 
 builder.Services.AddScoped<IDeviceRepository, DeviceRepository>();
 builder.Services.AddScoped<DeviceDbContext>();

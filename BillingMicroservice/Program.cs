@@ -1,3 +1,4 @@
+using BillingMicroservice.BGServices;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
@@ -13,6 +14,8 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<BillingDbContext>();
+
+builder.Services.AddHostedService<KafkaConsumerService>();
 
 var app = builder.Build();
 

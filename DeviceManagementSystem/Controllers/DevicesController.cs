@@ -1,9 +1,12 @@
 using System.Security.Claims;
+using Confluent.Kafka;
 using DeviceManagementAPI.DTO;
 using DeviceManagementAPI.Models;
 using DeviceManagementAPI.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+
 
 namespace DeviceManagementAPI.Controllers
 {
@@ -15,10 +18,16 @@ namespace DeviceManagementAPI.Controllers
     {
         private readonly IDeviceRepository _repo;
         private readonly HttpClient _httpClient;
-        public DevicesController(IDeviceRepository repo, HttpClient httpClient)
+
+        private readonly IProducer<string, string> _producer;
+        private readonly IConfiguration _configuration;
+        public DevicesController(IDeviceRepository repo, HttpClient httpClient, IProducer<string, string> producer, IConfiguration configuration)
         {
             _repo = repo;
             _httpClient = httpClient;
+
+            _producer = producer;
+            _configuration = configuration;
         }
 
         private Guid CreateGuidFromString(string input)
@@ -63,12 +72,20 @@ namespace DeviceManagementAPI.Controllers
                 Discount = 8,
             };
 
-            var response = await _httpClient.PostAsJsonAsync("http://localhost:5228/api/Bill", request);
+            string messageValue = JsonConvert.SerializeObject(request);
 
-            if (response.IsSuccessStatusCode)
+            try
             {
-                var bill = await response.Content.ReadFromJsonAsync<BillDto>();
-                Console.WriteLine(bill);
+                var deliveryResult = await _producer.ProduceAsync(
+                    _configuration["Kafka:Topic"],  
+                    new Message<string, string> { Key = deviceId.ToString(), Value = messageValue }
+                );
+
+                Console.WriteLine($"Message delivered to {deliveryResult.TopicPartitionOffset}");
+            }
+            catch (ProduceException<string, string> ex)
+            {
+                Console.WriteLine($"Failed to produce message: {ex.Message}");
             }
 
             return CreatedAtAction(nameof(GetById), new { id = device.Id }, device);
