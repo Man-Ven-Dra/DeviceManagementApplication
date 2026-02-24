@@ -1,0 +1,38 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.22 AS runtime
+RUN apt-get update && \
+    apt-get install -y gnupg2 curl apt-utils && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y \
+        libgdiplus \
+        libodbc1 \
+        unixodbc-dev \
+        libgssapi-krb5-2 \
+        python3 \
+        python3-pip \
+        python3-venv && \
+    ACCEPT_EULA=Y apt-get install -y msodbcsql17 mssql-tools && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bash_profile && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc && \
+    ln -s /usr/lib/libgdiplus.so /usr/lib/gdiplus.dll && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+    
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip3 install aggregate6
+
+# Remove build tools (important!)
+RUN apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY DeviceManagementSystem/ ./
+
+ENTRYPOINT ["dotnet", "DeviceManagementSystem.dll", "--url='http://localhost:5001'"]
+
+EXPOSE 5001
