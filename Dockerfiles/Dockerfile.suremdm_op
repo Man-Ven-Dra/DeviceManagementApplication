@@ -1,85 +1,47 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0.22 AS runtime
 
-# ─────────────────────────────────────────────────────────────
-# Install runtime dependencies + Microsoft ODBC driver 18
-# ─────────────────────────────────────────────────────────────
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        curl \
-        gnupg \
-        ca-certificates \
-        libgdiplus \
-        libc6 \
-        libicu72 \
-        libssl3 \
-        unixodbc \
-        supervisor && \
-    # Modern Microsoft repo setup (Debian 12 / bookworm)
-    curl -sSL -O https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb && \
-    dpkg -i packages-microsoft-prod.deb && \
-    rm packages-microsoft-prod.deb && \
-    curl -sSL https://packages.microsoft.com/keys/microsoft.asc | \
-        gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get install -y gnupg2 curl apt-utils && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
     apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
-        msodbcsql18 \
-        mssql-tools18 && \
-    # Clean up
-    apt-get autoremove -y && \
+    apt-get upgrade -y && \
+    apt-get install -y \
+        libgdiplus \
+        libodbc1 \
+        unixodbc-dev \
+        libgssapi-krb5-2 \
+        python3 \
+        python3-pip \
+        python3-venv && \
+    ACCEPT_EULA=Y apt-get install -y msodbcsql17 mssql-tools && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bash_profile && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc && \
+    ln -s /usr/lib/libgdiplus.so /usr/lib/gdiplus.dll && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    rm -rf /var/lib/apt/lists/*
 
-# Python venv + aggregate6 (keep only if truly needed)
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir aggregate6
+RUN pip3 install aggregate6
 
-# Symlink for legacy System.Drawing compatibility
-RUN ln -s /usr/lib/x86_64-linux-gnu/libgdiplus.so /usr/lib/libgdiplus.so || true
+RUN apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# ─────────────────────────────────────────────────────────────
-# Copy ALL microservices' published outputs
-# Adjust folder names to match what you actually transfer
-# ─────────────────────────────────────────────────────────────
 WORKDIR /app
 
-COPY DeviceManagementSystem/ ./devicemanagement/
-COPY BillingMicroservice/      ./billing/
-# Add more services here when needed, example:
-# COPY OrderService/           ./order/
-# COPY PaymentService/         ./payment/
+# 👇 COPY BOTH SERVICES
+COPY BillingMicroservice/ ./BillingMicroservice/
+COPY DeviceManagementSystem/ ./DeviceManagementSystem/
 
-# ─────────────────────────────────────────────────────────────
-# Supervisor configuration (inline here for simplicity)
-# You can also COPY a separate supervisord.conf file
-# ─────────────────────────────────────────────────────────────
-RUN echo '[supervisord]\n\
-nodaemon=true\n\
-logfile=/dev/null\n\
-loglevel=info\n\
-\n\
-[program:devicemanagement]\n\
-command=dotnet /app/devicemanagement/DeviceManagementSystem.dll\n\
-directory=/app/devicemanagement\n\
-autorestart=true\n\
-stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
-stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
-\n\
-[program:billing]\n\
-command=dotnet /app/billing/BillingMicroservice.dll\n\
-directory=/app/billing\n\
-autorestart=true\n\
-stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
-stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
-' > /etc/supervisor/conf.d/supervisord.conf
+# 👇 Create startup script
+RUN echo '#!/bin/bash\n\
+dotnet BillingMicroservice/BillingMicroservice.dll --urls=http://0.0.0.0:5000 &\n\
+dotnet DeviceManagementSystem/DeviceManagementSystem.dll --urls=http://0.0.0.0:5001\n\
+wait' > /app/start.sh && chmod +x /app/start.sh
 
-# Expose ports (adjust according to your services)
-EXPOSE 5001 5002  # or whatever ports your services use
+EXPOSE 5000
+EXPOSE 5001
 
-# Start supervisor → runs all microservices
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/app/start.sh"]
